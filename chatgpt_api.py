@@ -47,3 +47,18 @@ def get_fate(scenario, messages):
         response_format=Round,
     )
     return json.loads(completion.choices[0].message.content)
+
+def get_random_prompt():
+    print("Getting random prompt")
+    input_messages = [
+        {"role": "system", "content": bot_prompt},
+        {"role": "system", "content": "This time, you are tasked with creating a short prompt less than 50 words long that the players will respond to."},
+    ]
+
+    completion = openai.chat.completions.create(
+        model="gpt-4o-2024-08-06",
+        messages=input_messages,
+    )
+    print(f'Generated: {completion.choices[0].message.content}')
+
+    return completion.choices[0].message.content

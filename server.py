@@ -1,9 +1,28 @@
 import socket
-import asyncio
 from threading import Thread
 
 import chatgpt_api
 import random
+
+#parse the command line arguments
+IP = None
+PORT = 1337
+
+
+import sys
+print(sys.argv)
+if len(sys.argv) == 1:
+    print("Usage: python server.py [IP:PORT]")
+    sys.exit()
+
+if len(sys.argv) == 2:
+    IP = sys.argv[1]
+    if ":" in IP:
+        IP, PORT = IP.split(":")
+        PORT = int(PORT)
+else:
+    print("Usage: python server.py [IP:PORT]")
+    sys.exit()
 
 # seed random
 random.seed()
@@ -30,11 +49,13 @@ def wrap_in_color(message, color):
     return f'\033[{color}m{message}\033[0m'
 
 def send_message(player, message):
-    player.client_socket.send(message.encode())
+    print("Sending message to player:", player.name, message)
+    player.client_socket.sendall(message.encode())
 
 def send_message_to_all(message):
+    print("Sending message to all: ", message)
     for player in players:
-        player.client_socket.send(message.encode())
+        player.client_socket.sendall(message.encode())
 
 def on_player_connect(player):
     print(f'Player connected: {player.id}')
@@ -55,11 +76,12 @@ def get_player_by_name(name):
 
 def on_player_disconnect(player):
     global currId
-    print("Player disconnected: ", player.name)
-    send_message_to_all(f"{player.name} has left the game!")
     players.remove(player)
+    print("Player disconnected: ", player.name)
     player.client_socket.close()
     currId -= 1
+
+    send_message_to_all(f"{player.name} has left the game!")
 
 
 def on_game_start():
@@ -72,7 +94,6 @@ def on_game_start():
     
     round = 1
     while round <= 5:
-
         send_message_to_all("------------------------------\n")
         send_message_to_all(f"Round {round}\n")
         round += 1
@@ -87,11 +108,20 @@ def on_game_start():
         
         # wait for a response from the prompter in the dict
         while random_player not in responses:
+            # if player disconnects while prompter, skip
+            if random_player not in players:
+                break
             pass
 
-        prompt = responses[random_player]
+        prompt = None
+
+        if random_player not in players:
+            prompt = chatgpt_api.get_random_prompt()
+        else:
+            prompt = responses[random_player]
         responses = {}
 
+        # prompt = chatgpt_api.get_random_prompt()
         random_player = None
 
         send_message_to_all('enable_sending\n')
@@ -99,12 +129,11 @@ def on_game_start():
         send_message_to_all(wrap_in_color("Prompt: " + prompt, '31'))
         send_message_to_all("\n")
         send_message_to_all("Respond to the prompt:")
+        send_message_to_all('enable_sending\n')
 
         # while not all players have responded
         while len(responses) < len(players):
             pass
-
-        send_message_to_all("enable_sending")
 
         print("All responses received... processing")
         send_message_to_all("\nAll responses received... Determining Fate")
@@ -128,12 +157,13 @@ def on_game_start():
                 pass
 
         # print current points
-        send_message_to_all("Current points:")
+        send_message_to_all("Current points:\n")
         for player in players:
             send_message_to_all(f"{player.name}: {player.points}\n")
 
         prompt = None
         responses = {}
+        send_message_to_all("enable_sending")
 
     send_message_to_all("Game over!")
     send_message_to_all("End points:")
@@ -157,6 +187,7 @@ def receive_message(player):
     msg = player.client_socket.recv(1024).decode()
     if is_playing:
         responses[player] = msg
+        send_message(player, "disable_sending")
     return msg
     
 
@@ -178,9 +209,9 @@ def listen_for_messages(player):
                 break  # Disconnect if no data received
             
             print("Received from player:", data)
-            if data == "cmd.start":
+            if data == "/start":
                 start_game()
-            elif data == "cmd.end":
+            elif data == "/end":
                 on_player_disconnect(player)
                 break
             else:
@@ -203,7 +234,7 @@ def start_server():
     print("Server started")
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_socket.bind(("0.0.0.0", 1337))
+    server_socket.bind((IP, PORT))
     server_socket.listen(5)
 
     Thread(target=accept_connections, args=(server_socket,)).run()
